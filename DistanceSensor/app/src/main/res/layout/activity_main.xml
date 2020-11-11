@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#FFFFFF">
+
+
+    <TextView
+        android:id="@+id/tvDistanceValue"
+        android:layout_width="match_parent"
+        android:layout_height="259dp"
+        android:gravity="center"
+        android:textSize="110dp"
+        android:text="0" />
+
+    <ListView
+        android:id="@+id/deviceList"
+        android:listSelector="@drawable/list_view_selector"
+        android:choiceMode="singleChoice"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" >
+    </ListView>
+</LinearLayout>

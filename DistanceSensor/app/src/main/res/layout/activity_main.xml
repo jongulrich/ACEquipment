@@ -14,11 +14,37 @@
         android:textSize="110dp"
         android:text="0" />
 
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnCalibrate"
+        android:layout_width="127dp"
+        android:background="@android:color/white"
+        android:textColor="@android:color/black"
+        android:layout_height="wrap_content"
+        android:text="Calibrate to Zero" />
+
+    <TextView
+        android:id="@+id/tvCalibrationOffset"
+        android:layout_width="match_parent"
+        android:layout_height="10dp"
+        android:textSize="8dp"
+        android:text="0" />
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnResetCalibration"
+        android:layout_width="127dp"
+        android:background="@android:color/white"
+        android:textColor="@android:color/black"
+        android:layout_height="wrap_content"
+        android:text="Reset" />
+
     <ListView
         android:id="@+id/deviceList"
         android:listSelector="@drawable/list_view_selector"
         android:choiceMode="singleChoice"
+        android:layout_weight="1"
         android:layout_width="match_parent"
         android:layout_height="wrap_content" >
     </ListView>
+
 </LinearLayout>

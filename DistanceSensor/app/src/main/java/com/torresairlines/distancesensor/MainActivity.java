@@ -9,6 +9,7 @@ import android.os.Handler;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.Button;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -18,11 +19,12 @@ import androidx.appcompat.app.AppCompatActivity;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UnsupportedEncodingException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Set;
-import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -33,8 +35,12 @@ public class MainActivity extends AppCompatActivity {
     private BluetoothSocket btsocket = null;
     private InputStream btInputStream = null;
     private OutputStream btOutputStream = null;
-    private int mCurrentDistance = 0;
+    private int mCalibrationOffset = 0;
+    private int mCurrentSensorDistance = 0;
     //for secure connections// private static final UUID SerialPortServiceClass_UUID = UUID.fromString("00001101-0000-1000-8615-00AB8089E4BA");
+    private static String initMessage = "wakeupmrpi";
+    private int mRandomVal = -1;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(getApplicationContext(),"Bluetooth Not Supported",Toast.LENGTH_SHORT).show();
         }
         else {
-            Toast.makeText(getApplicationContext(),"Listing Devices",Toast.LENGTH_SHORT).show();
+           // Toast.makeText(getApplicationContext(),"Listing Devices",Toast.LENGTH_SHORT).show();
 
             Set<BluetoothDevice> pairedDevices = bAdapter.getBondedDevices();
             ArrayList list = new ArrayList();
@@ -80,42 +86,67 @@ public class MainActivity extends AppCompatActivity {
                 // Get selected item text
                 String item = (String) adapterView.getItemAtPosition(i);
                 // Display the selected item
-                Toast.makeText(getApplicationContext(),"Selected : " + item,Toast.LENGTH_SHORT).show();
+                //Toast.makeText(getApplicationContext(),"Selected : " + item,Toast.LENGTH_SHORT).show();
                 BTConnect(bluetoothDevices.get(i));
+            }
+        });
+
+
+        /*
+            Calibration Buttons
+         */
+
+        final Button btnCalibrate = findViewById(R.id.btnCalibrate);
+        btnCalibrate.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                ZeroizeCurrentDistance();
+            }
+        });
+        final Button btnResetCalibration = findViewById(R.id.btnResetCalibration);
+        btnResetCalibration.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                SetCalibrationOffset(0);
             }
         });
 
         /*
             Update the GUI
          */
-        Handler myHandler = new Handler();
-        int delay = 1000; // 1000 milliseconds == 1 second
 
-        myHandler.postDelayed(new Runnable() {
+        Thread thread = new Thread() {
+            @Override
             public void run() {
                 byte[] buffer = new byte[1024];
                 int bytes;
-
-                // Keep listening to the InputStream while connected
-                if(btsocket != null &&  btInputStream != null) {
+                while (!isInterrupted()) {
                     try {
-                        // Read from the InputStream
-                        bytes = btInputStream.read(buffer);
-
-                        //TODO:: Parse Message
-                        mCurrentDistance = 1;
-
-                    } catch (IOException e) {
-                        connectionLost();
+                        Thread.sleep(10);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
                     }
+                    // Keep listening to the InputStream while connected
+                    if (btsocket != null && btInputStream != null) {
+                        try {
+                            // Read from the InputStream
+                            bytes = btInputStream.read(buffer);
+
+                            int parsedNum = ParseIntegerFromBytes(buffer, bytes);
+                            //TODO: parsedNum validation
+                            SetCurrentDistance(parsedNum);
+
+                        } catch (IOException e) {
+                            connectionLost();
+                        }
+                    } else {
+                        mRandomVal--;
+                        SetCurrentDistance(-999+mRandomVal);
+                    }
+                    updateCurrentDistanceText(Integer.toString(GetCurrentDistance()));
                 }
-                else
-                {
-                    mCurrentDistance = -999;
-                }
-                updateCurrentDistanceText(Integer.toString(mCurrentDistance));
             }
-        }, delay);
+        };
+
+        thread.start();
 
     }
 
@@ -162,20 +193,81 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
                     btsocket = tmp;
-                    try {
-                        btInputStream = btsocket.getInputStream();
-                        btOutputStream = btsocket.getOutputStream();
-                    } catch (IOException e) {
+
+                    if (btsocket != null) {
+                        try {
+                            btInputStream = btsocket.getInputStream();
+                            btOutputStream = btsocket.getOutputStream();
+                        } catch (IOException e) {
+                        }
+
+                        byte[] initstring = null;
+
+                        try {
+                            initstring = initMessage.getBytes("US-ASCII");
+                            BTWrite(initstring);
+
+                        } catch (UnsupportedEncodingException e) {
+                            e.printStackTrace();
+                            initstring = initMessage.getBytes();
+                        }
+                        BTWrite(initstring);
+
+
                     }
+
                 }
             }
         }
     }
 
+    private int BTWrite(byte[] bytes) {
+        int n = 0;
 
-
-    private void connectionLost() {
-        Toast.makeText(getApplicationContext(),"Connection Lost" ,Toast.LENGTH_SHORT).show();
+        if (btOutputStream != null && bytes.length > 0)
+        {
+            try {
+                btOutputStream.write(bytes);
+                n = bytes.length;
+            } catch (IOException e) {
+            }
+        }
+        return n;
     }
 
+    private int ParseIntegerFromBytes(byte[] bytes, int len)  {
+        int offset = 0;
+        ByteBuffer wrapped = ByteBuffer.wrap(bytes,offset,len);
+        return wrapped.getInt();
+    }
+
+    private void connectionLost() {
+        //Toast.makeText(getApplicationContext(),"Connection Lost" ,Toast.LENGTH_SHORT).show();
+    }
+
+    private void ZeroizeCurrentDistance()
+    {
+        SetCalibrationOffset(-1 * mCurrentSensorDistance);
+    }
+
+    private void SetCalibrationOffset(int offset)
+    {
+       // Toast.makeText(getApplicationContext(),"Calibration offset set to " + offset,Toast.LENGTH_SHORT).show();
+        mCalibrationOffset = offset;
+
+        //Update GUI
+        TextView textView = (TextView) findViewById(R.id.tvCalibrationOffset);
+        textView.setText(Integer.toString(offset));
+        textView.setTextColor(Color.BLACK);
+
+    }
+    private void SetCurrentDistance(int sensorDistance)
+    {
+        mCurrentSensorDistance = sensorDistance;
+    }
+    private int GetCurrentDistance()
+    {
+        int adjustedDistance = (mCurrentSensorDistance + mCalibrationOffset);
+        return adjustedDistance;
+    }
 }

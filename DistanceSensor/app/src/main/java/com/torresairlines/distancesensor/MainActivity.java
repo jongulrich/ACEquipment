@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothSocket;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
+import android.util.Log;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -23,43 +24,42 @@ import java.io.UnsupportedEncodingException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Set;
+import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
 
     private ListView lstvw;
     private ArrayAdapter aAdapter;
-    private BluetoothAdapter bAdapter = BluetoothAdapter.getDefaultAdapter();
     private ArrayList<String> bluetoothDevices = new ArrayList<String>();
-    private BluetoothSocket btsocket = null;
-    private InputStream btInputStream = null;
-    private OutputStream btOutputStream = null;
+
     private int mCalibrationOffset = 0;
     private int mCurrentSensorDistance = 0;
-    //for secure connections// private static final UUID SerialPortServiceClass_UUID = UUID.fromString("00001101-0000-1000-8615-00AB8089E4BA");
-    private static String initMessage = "wakeupmrpi";
-    private int mRandomVal = -1;
 
+    private int mRandomVal = -1;
+    private boolean once = true;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
 
+
+        BluetoothConnection BTConnection = new BluetoothConnection();
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
         updateCurrentDistanceText("Initializing");
 
         /*
             List out bluetooth devices
          */
-        if(bAdapter==null){
+        if(!BTConnection.IsSupported()){
             Toast.makeText(getApplicationContext(),"Bluetooth Not Supported",Toast.LENGTH_SHORT).show();
         }
         else {
            // Toast.makeText(getApplicationContext(),"Listing Devices",Toast.LENGTH_SHORT).show();
 
-            Set<BluetoothDevice> pairedDevices = bAdapter.getBondedDevices();
+            Set<BluetoothDevice> pairedDevices = BTConnection.GetBondedDevices();
             ArrayList list = new ArrayList();
             if(pairedDevices.size()>0){
                 for(BluetoothDevice device: pairedDevices){
@@ -87,7 +87,7 @@ public class MainActivity extends AppCompatActivity {
                 String item = (String) adapterView.getItemAtPosition(i);
                 // Display the selected item
                 //Toast.makeText(getApplicationContext(),"Selected : " + item,Toast.LENGTH_SHORT).show();
-                BTConnect(bluetoothDevices.get(i));
+                BTConnection.Connect(bluetoothDevices.get(i));
             }
         });
 
@@ -116,30 +116,40 @@ public class MainActivity extends AppCompatActivity {
         Thread thread = new Thread() {
             @Override
             public void run() {
+
                 byte[] buffer = new byte[1024];
-                int bytes;
+
                 while (!isInterrupted()) {
                     try {
                         Thread.sleep(10);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
-                    // Keep listening to the InputStream while connected
-                    if (btsocket != null && btInputStream != null) {
-                        try {
-                            // Read from the InputStream
-                            bytes = btInputStream.read(buffer);
 
-                            int parsedNum = ParseIntegerFromBytes(buffer, bytes);
+                    if (BTConnection.isConnected()) {
+                        // Read from the InputStream
+
+                        String reqdata = ".";
+                        try {
+                            BTConnection.Write(reqdata.getBytes("UTF-8"));
+                        } catch (UnsupportedEncodingException e) {
+                            e.printStackTrace();
+                        }
+
+                        int nbytes = BTConnection.Read(buffer);
+
+                        if (nbytes>0) {
+                            Log.d("DISTSENSOR: main", "reading bluetooth data: " + nbytes);
+                            int parsedNum = ParseIntegerFromBytes(buffer, nbytes - 1);
                             //TODO: parsedNum validation
                             SetCurrentDistance(parsedNum);
-
-                        } catch (IOException e) {
-                            connectionLost();
+                        } else {
+                            if (once)
+                            {
+                                Log.d("DISTSENSOR: main", "reading blank bluetooth data");
+                                once = false;
+                            }
                         }
-                    } else {
-                        mRandomVal--;
-                        SetCurrentDistance(-999+mRandomVal);
                     }
                     updateCurrentDistanceText(Integer.toString(GetCurrentDistance()));
                 }
@@ -156,89 +166,17 @@ public class MainActivity extends AppCompatActivity {
         textView.setTextColor(Color.GREEN);
     }
 
-    public void BTConnect(String deviceMAC) {
 
-        // If there are paired devices
-        Set<BluetoothDevice> pairedDevices = bAdapter.getBondedDevices();
-
-        ArrayList list = new ArrayList();
-
-        if(pairedDevices.size()>0) {
-            for(BluetoothDevice device: pairedDevices){
-
-                String macAddress = device.getAddress();
-
-                if (deviceMAC.equals(macAddress)) {
-
-                    BluetoothSocket tmp = null;
-
-                    try {
-                        Method method = device.getClass().getMethod("createRfcommSocket", new Class[] { int.class } );
-                        tmp = (BluetoothSocket) method.invoke(device, 1);
-
-                    } catch (NoSuchMethodException e) {
-                        e.printStackTrace();
-                    } catch (IllegalAccessException e) {
-                        e.printStackTrace();
-                    } catch (InvocationTargetException e) {
-                        e.printStackTrace();
-                    }
-
-                    try {
-                        tmp.connect();
-                    } catch (IOException e1) {
-                        try {
-                            tmp.close();
-                        } catch (IOException e2) {
-                        }
-                    }
-                    btsocket = tmp;
-
-                    if (btsocket != null) {
-                        try {
-                            btInputStream = btsocket.getInputStream();
-                            btOutputStream = btsocket.getOutputStream();
-                        } catch (IOException e) {
-                        }
-
-                        byte[] initstring = null;
-
-                        try {
-                            initstring = initMessage.getBytes("US-ASCII");
-                            BTWrite(initstring);
-
-                        } catch (UnsupportedEncodingException e) {
-                            e.printStackTrace();
-                            initstring = initMessage.getBytes();
-                        }
-                        BTWrite(initstring);
-
-
-                    }
-
-                }
-            }
-        }
-    }
-
-    private int BTWrite(byte[] bytes) {
-        int n = 0;
-
-        if (btOutputStream != null && bytes.length > 0)
-        {
-            try {
-                btOutputStream.write(bytes);
-                n = bytes.length;
-            } catch (IOException e) {
-            }
-        }
-        return n;
-    }
 
     private int ParseIntegerFromBytes(byte[] bytes, int len)  {
         int offset = 0;
-        ByteBuffer wrapped = ByteBuffer.wrap(bytes,offset,len);
-        return wrapped.getInt();
+        String strValue = new String(bytes, StandardCharsets.UTF_8);
+        int iend = strValue.indexOf(".");
+        if (iend != -1)
+        {
+            strValue= strValue.substring(0 , iend); //this will give abc
+        }
+        return Integer.parseInt(strValue);
     }
 
     private void connectionLost() {
